@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <endian.h>
+#include <unistd.h>
 ///////////////////////////////////////
 
 ///////////////////////////////////////
@@ -88,14 +89,14 @@ struct fileSystem
 	uint64_t id;
 	uint16_t block_size;
 	int num_blocks;
-	struct FAT FAT;
-	struct FDT FDT;
 };
 ///////////////////////////////////////
 
 ///////////////////////////////////////
 // Prototypes
+void free_fileSystem();
 void read_superblock(unsigned char*,int);
 void read_FAT(unsigned char*,int);
 void read_FDT(unsigned char*, int);
+void copy_file(unsigned char*, char*,char*);
 ///////////////////////////////////////

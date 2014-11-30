@@ -42,6 +42,27 @@ bool dirEntryIsFile(unsigned char status)
 }
 
 /*
+* Returns the directory entry in the FDT that has the filename
+*/
+struct dirEntry* findEntryInFDT(char* filename)
+{
+	struct dirEntry* entry = NULL;
+	struct dirEntry cur_entry;
+
+	int i;
+	for(i=0; i<dir_entries; i++)
+	{
+		cur_entry = FDT->root[i];
+		if((!strcmp(filename, cur_entry.filename)) &&
+			dirEntryIsFile(cur_entry.status))
+		{
+			entry = &cur_entry;
+			break;
+		}
+	}
+	return entry;
+}
+/*
 * Initialize a Time struct with the bytes in buffer
 */
 void init_timeStruct(struct Time* timeP, unsigned char* buffer, int bufsize)
@@ -95,6 +116,18 @@ void init_timeStruct(struct Time* timeP, unsigned char* buffer, int bufsize)
     *timeP = timeStruct;
 }
 
+/*
+* Free allocated memory
+*/
+void free_fileSystem()
+{
+	//free(FAT->entries);
+	//free(FDT->root);
+	//free(FAT);
+	//free(FDT);
+	//free(fileSystem);
+}
+
 /* Store the superblock's fields into the correct struct, 
 * then print the values if flagged to do so
 */
@@ -144,9 +177,6 @@ void read_superblock(unsigned char* map, int print)
 	FDT->num_blocks = htonl(FDT->num_blocks);
 	offset += 4;
 
-	// Store the FAT and FDT structs in the fileSystem struct
-	fileSystem->FAT = *FAT;
-	fileSystem->FDT = *FDT;
 
 	if(print)
 	{
@@ -173,7 +203,7 @@ void read_FAT(unsigned char* map, int print)
 	int i,j;
 
 	// Initialize the pointer for the FAT's list of entries
-	FAT->entries = malloc(sizeof(int)*FAT->num_blocks*FAT_ENTRIES_PER_BLOCK);
+	FAT->entries = (int*)malloc(sizeof(FAT->entries)*FAT->num_blocks*FAT_ENTRIES_PER_BLOCK);
 
 	current_block = FAT->start_block;
 	end_index = (FAT->start_block + FAT->num_blocks)*BLOCK_SIZE;
@@ -246,7 +276,7 @@ void read_FDT(unsigned char* map, int print)
 	int i,j;
 
 	current_block = FDT->start_block;
-	printf("starting at block %d, current_index %d\n", current_block, current_block*BLOCK_SIZE);
+	//printf("starting at block %d, current_index %d\n", current_block, current_block*BLOCK_SIZE);
 	end_index = (FDT->start_block + FDT->num_blocks)*BLOCK_SIZE;
 	entries_per_block = BLOCK_SIZE / DIR_ENTRY_SIZE;
 	num_entries = entries_per_block * FDT->num_blocks;
@@ -352,4 +382,363 @@ void read_FDT(unsigned char* map, int print)
 	}
 
 }
+
+/*
+* Copy the file specified from the file system to the current directory by
+*	reading then writing each block
+*/
+void copy_file(unsigned char* map, char* imageFileName, char* outFileName)
+{
+    struct dirEntry* fileEntry = NULL; /* Entry at ROOT dir for requested file name */
+    unsigned char *buffer = NULL;
+    int fileBlock = -1;
+    int fileSize = -1;
+    int blocks2Read = 0;     /* Blocks to read completely */
+    int remainingBytes = 0;  /* Bytes to read at last block */
+    FILE *fp  = NULL;
+    FILE *wfp = NULL;        /* write file pointer - to write into current directory */
+    int i;
+
+    if (imageFileName == NULL)
+    {
+        printf("ERROR: Could not open NULL img file\n");
+        exit(-1);
+    }
+
+    if (outFileName == NULL)
+    {
+        printf("ERROR: Could not open NULL out file\n");
+        exit(-1);
+    }
+
+    /* Check if we can open file to read it in binary mode */
+    fp = fopen(imageFileName, "rb");
+
+    if (fp == NULL)
+    {
+        printf("ERROR: Could not open file <%s>\n", imageFileName);
+        exit(-1);
+    }
+
+    /* Initialize/reset filesystem storage */  
+    memset( &fileSystem, 0, sizeof(fileSystem) );
+
+    /* Part III - We read all blocks */
+    
+	// Read the superblock
+	read_superblock(map, 0);
+
+	// Traverse the FAT
+	read_FAT(map, 0);
+
+	// traverse the root directory (FDT)
+	read_FDT(map, 0);
+
+    /* Get ROOT entry for requested file - when not found it returns -1 */
+    fileEntry = findEntryInFDT(outFileName);
+
+    if (fileEntry != NULL)
+    {
+        /* We can open now output file */
+        wfp = fopen(outFileName, "wb");
+
+        if (wfp == NULL)
+        {
+            printf("ERROR: Could not open file <%s>\n", outFileName);
+            exit(-1);
+        }
+
+        /* Create a buffer to read a complete block */
+        buffer = malloc(BLOCK_SIZE);
+        printf("block size: %d\n", BLOCK_SIZE);
+        /* Get sizes and how many blocks we have to read */
+        fileBlock = fileEntry->start_block;
+        fileSize  = fileEntry->file_size;
+
+        blocks2Read    = (fileSize / BLOCK_SIZE);
+        remainingBytes = (fileSize % BLOCK_SIZE);
+
+        /* printf("File size is %d, blocks %d remaining %d.\n",
+               fileSize,
+               blocks2Read,
+               remainingBytes); */ /* debug */
+     
+        /* Read blocks that will read entire */
+        for (i=0; i < blocks2Read; i++)
+        {
+            /* Point to next block to read */
+            fseek(fp , BLOCK_SIZE*fileBlock, SEEK_SET);
+
+            /* Read full block */
+            /* printf("Reading full block: %d\n", fileBlock); *//* debug */
+            fread(&buffer[0],  1, BLOCK_SIZE, fp);
+
+            /* write it into output file */
+            fwrite(&buffer[0], 1, BLOCK_SIZE, wfp);
+
+            /* obtain next block from FAT */
+            fileBlock = FAT->entries[fileBlock];
+        }
+
+        if (remainingBytes > 0)
+        {
+            /* Now we read remaining bytes from last block */
+            fseek(fp , BLOCK_SIZE*fileBlock, SEEK_SET);
+            /* printf("Reading %d bytes from block: %d\n", remainingBytes, fileBlock); *//* debug */
+            fread(&buffer[0], 1, remainingBytes, fp);
+
+            /* write them into output file */
+            fwrite(&buffer[0], 1, remainingBytes, wfp);
+        }
+    }
+    else
+    {
+        printf("File not found.\n");
+    }
+
+	// free the buffer
+    free(buffer);
+    buffer = NULL;
+     
+    /* Close files always */
+    if (fp != NULL)
+    {
+        fclose(fp);
+        fp = NULL;
+    }
+
+    if (wfp != NULL)
+    {
+        fclose(wfp);
+        wfp = NULL;
+    }
+
+    /* Deallocate FAT */
+    if (FAT->entries != NULL)
+    {
+        free(FAT->entries);
+        FAT->entries = NULL;
+    }
+
+    /* Deallocate ROOT memory */
+    if (FDT->root != NULL)
+    {
+        free(FDT->root);
+        FDT->root = NULL;
+    }
+}
+/*
+* Copy file from current directory to file system
+*/
+/*
+void diskPut(char* imageFileName, char *inFileName)
+{
+    unsigned char *buffer = NULL;
+    int rootEntryPosition = -1;
+    struct tm* timeInfo = NULL;
+    struct stat st;
+    time_t now;
+    FILE *fp   = NULL;
+    FILE *rfp  = NULL;
+    int currentBlock = -1;
+    int previousBlock = -1;
+    int blocksRequired = 0;
+    int totalBytesRead = 0;
+    int bytesRead = 0;
+    int auxShort = 0;
+    int auxInt = 0;
+    int auxWriteOffset = 0;
+    int writeOffset = 0;
+    int i;
+
+    if (imageFileName == NULL)
+    {
+        printf("ERROR: Could not open NULL img file\n");
+        exit(-1);
+    }
+
+    if (inFileName == NULL)
+    {
+        printf("ERROR: Could not open NULL input file\n");
+        exit(-1);
+    }
+
+    if (access(inFileName, R_OK))
+    {
+        printf("File not found.\n");
+        exit(-1);
+    }
+
+    fp = fopen(imageFileName, "r+");
+
+    if (fp == NULL)
+    {
+        printf("ERROR: Could not open file <%s>\n", imageFileName);
+        exit(-1);
+    }
+
+
+    rfp = fopen(inFileName, "rb");
+
+    if (fp == NULL)
+    {
+        printf("ERROR: Could not open file <%s>\n", inFileName);
+        exit(-1);
+    }
+
+    stat(inFileName, &st);
+
+	unsigned char* map = mmap((caddr_t)0, 
+				st.st_size,
+				 PROT_READ, 
+				 MAP_SHARED, 
+				 fp, 
+				 0);
+
+    memset( &myFileSystem, 0, sizeof(myFileSystem) );
+
+    readSuperBlock(fp, 0);
+    readFat(fp, 0);  
+    readRootDirectory(fp, 0);
+
+    buffer = malloc(myFileSystem.blockSize);
+
+    if (firstRootEntryFree == -1 )
+    {
+        printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
+        exit(-1);
+    }
+
+    rootEntryPosition = (firstRootEntryFreeBlock * myFileSystem.blockSize) + 
+                        (firstRootEntryFree * DIR_ENTRY_SIZE);
+    
+    currentBlock = getNextFreeFatBlock(fp, &writeOffset);
+
+    if (currentBlock == -1 )
+    {
+        printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
+        exit(-1);
+    }
+
+    fseek(fp , rootEntryPosition , SEEK_SET);
+    buffer[0] = (DIR_ENTRY_USED | DIR_ENTRY_FILE); 
+    fwrite(&buffer[0], 1, DIR_ENTRY_STATUS_SIZE, fp);
+
+
+    auxInt  = htonl(currentBlock);
+    memcpy(&buffer[0], &auxInt, DIR_ENTRY_START_BLOCK_SIZE);
+    fwrite(&buffer[0], 1, DIR_ENTRY_START_BLOCK_SIZE, fp);
+
+    blocksRequired = st.st_size / myFileSystem.blockSize;
+    if(st.st_size % myFileSystem.blockSize) blocksRequired++;
+    auxInt  = htonl(blocksRequired);
+    memcpy(&buffer[0], &auxInt, DIR_ENTRY_BLOCKS_NUM_SIZE);
+    fwrite(&buffer[0], 1, DIR_ENTRY_BLOCKS_NUM_SIZE, fp);
+
+    auxInt = htonl(st.st_size);
+    memcpy(&buffer[0], &auxInt, DIR_ENTRY_FILE_SIZE_B_SIZE);
+    fwrite(&buffer[0], 1, DIR_ENTRY_FILE_SIZE_B_SIZE, fp);
+
+
+    now = time(NULL);
+    timeInfo = gmtime(&now);
+    auxShort = timeInfo->tm_year + 1900; 
+    auxShort = htons(auxShort);
+    memcpy(&buffer[TIME_INFO_YEAR_ID], &auxShort, sizeof(short));
+    buffer[TIME_INFO_MONTH_ID] = timeInfo->tm_mon + 1; 
+    buffer[TIME_INFO_DAY_ID] = timeInfo->tm_mday;
+    buffer[TIME_INFO_HOUR_ID] = timeInfo->tm_hour;
+    if(!timeInfo->tm_isdst) buffer[TIME_INFO_HOUR_ID]++; 
+    buffer[TIME_INFO_MINUTES_ID] = timeInfo->tm_min;
+    buffer[TIME_INFO_SECONDS_ID] = timeInfo->tm_sec;
+
+    fwrite(&buffer[0], 1, DIR_ENTRY_CREATE_TIME_SIZE, fp);
+    
+    fwrite(&buffer[0], 1, DIR_ENTRY_CREATE_TIME_SIZE, fp);
+   
+    memset(&buffer[0], 0, DIR_ENTRY_FILE_NAME_SIZE);
+    memcpy(&buffer[0], inFileName, strlen(inFileName));
+    fwrite(&buffer[0], 1, DIR_ENTRY_FILE_NAME_SIZE, fp);
+    
+    //memset(&buffer[0], 0xFF, DIR_ENTRY_UNUSED_SIZE);
+    fread(&buffer[0], 1, DIR_ENTRY_UNUSED_SIZE, fp);
+
+    fseek(rfp , 0, SEEK_SET);
+    
+    for (i=0; i < blocksRequired; i++)
+    {
+        fseek(fp , currentBlock*myFileSystem.blockSize , SEEK_SET);
+
+        bytesRead = fread(&buffer[0], 1, myFileSystem.blockSize, rfp);
+        totalBytesRead += bytesRead;
+
+        fwrite(&buffer[0], 1, bytesRead, fp);
+
+        if(totalBytesRead >= st.st_size)
+        {
+            //FAT[currentBlock] = FAT_ENTRY_IS_LAST;
+
+            fseek(fp , writeOffset, SEEK_SET);
+            memcpy(&buffer[0], &FAT[currentBlock], FAT_ENTRY_SIZE);
+            fwrite(&buffer[0], 1, FAT_ENTRY_SIZE, fp);
+        }
+        else
+        {
+            previousBlock  = currentBlock;
+            auxWriteOffset = writeOffset;
+
+            fseek(fp , auxWriteOffset, SEEK_SET);
+            auxInt = htonl(currentBlock);
+            memcpy(&buffer[0], &auxInt, FAT_ENTRY_SIZE);
+            fwrite(&buffer[0], 1, FAT_ENTRY_SIZE, fp);
+
+            currentBlock = getNextFreeFatBlock(fp, &writeOffset);
+
+            if (currentBlock == -1 )
+            {
+                printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
+                exit(-1);
+            }
+
+            fseek(fp , auxWriteOffset, SEEK_SET);
+            auxInt = htonl(currentBlock);
+            memcpy(&buffer[0], &auxInt, FAT_ENTRY_SIZE);
+            fwrite(&buffer[0], 1, FAT_ENTRY_SIZE, fp);
+            
+            //FAT[previousBlock] = currentBlock;
+        }
+    }
+
+    if(buffer != NULL)
+    {
+        free(buffer);
+        buffer = NULL;
+    }
+
+    if (fp != NULL)
+    {
+        fclose(fp);
+        fp = NULL;
+    }
+
+    if (rfp != NULL)
+    {
+        fclose(rfp);
+        rfp = NULL;
+    }
+
+    if (FAT != NULL)
+    {
+        free(FAT);
+        FAT = NULL;
+    }
+
+    if (ROOT != NULL)
+    {
+        free(ROOT);
+        ROOT = NULL;
+    }
+}
+*/
+
 ////////////////////////////////////////

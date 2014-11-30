@@ -1,4 +1,4 @@
-/* Part1: Print the superblock and FAT information
+/* Part3: Copy a file from the file system to the current directory
 */
 
 //////////////////////////////////////////
@@ -24,20 +24,22 @@
 int main(int argc, char* argv[])
 {
 	char* diskimg;			// Filename of disk image
+	char* target_filename;	// Filename of file to be sent
 	int fd;					// File descriptor of disk image
 	struct stat fileStats;	// Statistics of disk image
 	unsigned char* map;		// Map of the disk image as array of bytes
 
-	if(argc != 2)
+	if(argc != 3)
 	{
-		printf("Usage: $./diskinfo <disk.img>");
+		printf("Usage: $./diskget <disk.img> <copyfilename>\n");
 		exit(-1);
 	}
 
 	diskimg = argv[1];
+	target_filename = argv[2];
 
 	// Open image file
-	if((fd = open(diskimg, O_RDONLY)) == -1)
+	if((fd = open(diskimg, O_RDONLY)) == NULL)
 	{
 		perror("fopen()\n");
 		exit(-1);
@@ -63,19 +65,16 @@ int main(int argc, char* argv[])
 		exit(-1);
 	}
 
-	// Read the superblock and print it's information
-	read_superblock(map, 1);
-
-	// Traverse the FAT and record entry statistics
-	read_FAT(map, 1);
-
+	// Since the file is stored, close the file
 	close(fd);
 
-	// free the file system after usage
-	free_fileSystem();
+	// copy the file to the current directory
+	printf("copying %s from %s...\n", target_filename, diskimg);
+	copy_file(map, diskimg, target_filename);
 
 	return 0;
 }
 
 
 //////////////////////////////////////////
+

@@ -72,6 +72,11 @@ int main(int argc, char* argv[])
 	// traverse the root (FDT) and print its information
 	read_FDT(map, 1);
 
+	close(fd);
+	
+	// free the file system after usage
+	free_fileSystem();
+
 	return 0;
 }
 
