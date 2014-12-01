@@ -141,6 +141,95 @@ struct dirEntry* findEntryInFDT(char* filename)
 	return entry;
 }
 /*
+*	Return the id of the next FAT block. -1 On end of FAT
+*/
+int getNextFatBlock(int current_block)
+{
+	// for each FAT entry
+	int i = 0;
+	while(FAT->entries[i] != NULL)
+	{
+		// if it is reserved, return the entry id
+		if(FAT->entries[i] == BLOCK_RESERVED) return i;
+	}
+
+    return -1;
+}
+/*
+*	Searches the FAT for the next avaiable entry. 
+*	Stores the entry offset in "position"
+*/
+int getNextFATEntry(unsigned char* map, int* position)
+{
+	unsigned char fat_entry[FAT_ENTRY_SIZE];
+	int current_index;
+    int current_block = FAT->start_block;
+    int entryId = 0;
+    int status, auxInt;
+    int i, j;
+
+    if (position == NULL)
+    {
+        return -1;
+    }
+
+    // for each FAT block
+    for (i=0; i < FAT->num_blocks; i++)
+    {
+    	// go to next block
+    	current_index = current_block*BLOCK_SIZE;
+
+        /* Stop when no more blocks */
+        if(current_block < 0)  
+        {
+            /* printf("No more FAT blocks\n"); */
+            break;
+        }
+
+        /* we move to the start of next FAT block: N bytes = blockSize * currentBlock  */
+        /* currentBlock = fat_start for the first block */
+        /* currentBlock = block obtained after looking into FAT */
+
+        /* Read al FAT entries for current block to obtain statistics (blocks used, reserved, free) */
+
+        // for each FAT entry
+        for (j=0; j < FAT_ENTRIES_PER_BLOCK; j++)
+        {
+        	
+
+            /* we read FAT entries as follows: */
+            /* 1) Read 4 bytes into array */
+            /* 2) memcpy() 4 bytes into int */
+            /* 3) Apply htonl() to int obtained  */
+            //fread(&fat_entry[0], 1, FAT_ENTRY_SIZE, fp);
+            memcpy(&fat_entry, &map[current_index], FAT_ENTRY_SIZE);
+            //memcpy(&auxInt, &fat_entry[0], FAT_ENTRY_SIZE);
+            status = htonl(auxInt);
+
+            if(status == BLOCK_AVAILABLE)
+            {
+                /* we return blockId = entryID and offset within file = position */
+                *position = (current_index - FAT_ENTRY_SIZE);
+                /* printf("Next entry from FAT to be used is %d, offset %d\n", entryId, *position); */
+
+                return entryId;
+            }
+
+            // go to next FAT entry
+        	current_index += FAT_ENTRY_SIZE;
+
+            entryId++;
+
+        } /* End for(;;) FAT entries of this block */
+
+        /* now move to next FAT block using current */
+        current_block = getNextFatBlock(current_block);
+    }
+
+    /* when no FAT entry available - return -1 */
+    return -1;
+}
+/*
 * Initialize a Time struct with the bytes in buffer
 */
 void init_timeStruct(struct Time* timeP, unsigned char* buffer, int bufsize)
@@ -503,8 +592,6 @@ void copy_file(unsigned char* map, char* imageFileName, char* outFileName)
     memset(&buffer, 0, BLOCK_SIZE);
 
     // open the file to write to
-    
-
     wfp = open(outFileName, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
 
     if (wfp < 0)
@@ -550,7 +637,7 @@ void copy_file(unsigned char* map, char* imageFileName, char* outFileName)
 /*
 * Copy file from current directory to file system
 */
-/*
+
 void diskPut(char* imageFileName, char *inFileName)
 {
     unsigned char buffer[BLOCK_SIZE];
@@ -561,6 +648,7 @@ void diskPut(char* imageFileName, char *inFileName)
     int fp;
     int rfp;
     int currentBlock = -1;
+    int current_index;
     int previousBlock = -1;
     int blocksRequired = 0;
     int totalBytesRead = 0;
@@ -590,9 +678,15 @@ void diskPut(char* imageFileName, char *inFileName)
     }
 
 
-    rfp = open(inFileName, "rb");
+    // open the disk image file
+    if((fp = open(imageFileName, O_RDWR)) < 0)
+    {
+        printf("ERROR: Could not open file <%s>\n", imageFileName);
+        exit(-1);
+    }
 
-    if (fp == NULL)
+    // open the input file
+    if((rfp = open(inFileName, O_RDONLY)) < 0)
     {
         printf("ERROR: Could not open file <%s>\n", inFileName);
         exit(-1);
@@ -600,6 +694,7 @@ void diskPut(char* imageFileName, char *inFileName)
 
     stat(inFileName, &st);
 
+    // get the disk as a map
 	unsigned char* map = mmap((caddr_t)0, 
 				st.st_size,
 				 PROT_READ, 
@@ -607,54 +702,70 @@ void diskPut(char* imageFileName, char *inFileName)
 				 fp, 
 				 0);
 
+	// read evreything
     read_superblock(map, 0);
-    read_FaAT(map, 0);  
+    read_FAT(map, 0);  
     read_FDT(map, 0);
 
     // init buffer to 0's
     memset(&buffer, 0, BLOCK_SIZE);
 
+    // make sure file system isn't already full
     if (firstRootEntryFree == -1 )
     {
         printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
         exit(-1);
     }
 
-    rootEntryPosition = (firstRootEntryFreeBlock * myFileSystem.blockSize) + 
+    // find the entry point
+    rootEntryPosition = (firstRootEntryFreeBlock * BLOCK_SIZE) + 
                         (firstRootEntryFree * DIR_ENTRY_SIZE);
     
-    currentBlock = getNextFreeFatBlock(fp, &writeOffset);
-
-    if (currentBlock == -1 )
+    // get next block
+    if ((currentBlock = getNextFATEntry(map, &writeOffset)) == -1 )
     {
         printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
         exit(-1);
     }
 
-    fseek(fp , rootEntryPosition , SEEK_SET);
-    buffer[0] = (DIR_ENTRY_USED | DIR_ENTRY_FILE); 
-    fwrite(&buffer[0], 1, DIR_ENTRY_STATUS_SIZE, fp);
+    // go to entry point
+    current_index = rootEntryPosition;
 
+    // set status byte
+    buffer[0] = (0x01 | 0x02); 
+    // write status field to disk image
+    write(fp, buffer, DIR_ENTRY_STATUS_SIZE);
 
+    // read start block size field
     auxInt  = htonl(currentBlock);
     memcpy(&buffer[0], &auxInt, DIR_ENTRY_START_BLOCK_SIZE);
-    fwrite(&buffer[0], 1, DIR_ENTRY_START_BLOCK_SIZE, fp);
+    // write start block size field to disk image
+    write(fp, buffer, DIR_ENTRY_START_BLOCK_SIZE);
 
-    blocksRequired = st.st_size / myFileSystem.blockSize;
-    if(st.st_size % myFileSystem.blockSize) blocksRequired++;
+    // determine number of blocks required for the infile
+    blocksRequired = st.st_size / BLOCK_SIZE;
+    // add an extra for remaining blocks
+    if(st.st_size % BLOCK_SIZE) blocksRequired++;
+
+    // read the number of blocks field
     auxInt  = htonl(blocksRequired);
-    memcpy(&buffer[0], &auxInt, DIR_ENTRY_BLOCKS_NUM_SIZE);
-    fwrite(&buffer[0], 1, DIR_ENTRY_BLOCKS_NUM_SIZE, fp);
+    memcpy(&buffer[0], &auxInt, DIR_ENTRY_NUM_BLOCKS_SIZE);
+    // write the number of blocks field
+    write(fp, buffer, DIR_ENTRY_NUM_BLOCKS_SIZE);
 
+    // read the file size field
     auxInt = htonl(st.st_size);
     memcpy(&buffer[0], &auxInt, DIR_ENTRY_FILE_SIZE_B_SIZE);
-    fwrite(&buffer[0], 1, DIR_ENTRY_FILE_SIZE_B_SIZE, fp);
+    // write the file size filed
+    write(fp, buffer, DIR_ENTRY_FILE_SIZE_B_SIZE);
 
-
+    // get the time of infile's creation
     now = time(NULL);
     timeInfo = gmtime(&now);
     auxShort = timeInfo->tm_year + 1900; 
     auxShort = htons(auxShort);
+
+    // store the creation time data in time struct
     memcpy(&buffer[TIME_INFO_YEAR_ID], &auxShort, sizeof(short));
     buffer[TIME_INFO_MONTH_ID] = timeInfo->tm_mon + 1; 
     buffer[TIME_INFO_DAY_ID] = timeInfo->tm_mday;
@@ -663,6 +774,7 @@ void diskPut(char* imageFileName, char *inFileName)
     buffer[TIME_INFO_MINUTES_ID] = timeInfo->tm_min;
     buffer[TIME_INFO_SECONDS_ID] = timeInfo->tm_sec;
 
+    // write the creation time data to the diskimage
     fwrite(&buffer[0], 1, DIR_ENTRY_CREATE_TIME_SIZE, fp);
     
     fwrite(&buffer[0], 1, DIR_ENTRY_CREATE_TIME_SIZE, fp);
@@ -738,17 +850,7 @@ void diskPut(char* imageFileName, char *inFileName)
         rfp = NULL;
     }
 
-    if (FAT != NULL)
-    {
-        free(FAT);
-        FAT = NULL;
-    }
 
-    if (ROOT != NULL)
-    {
-        free(ROOT);
-        ROOT = NULL;
-    }
 }
-*/
+
 ////////////////////////////////////////
