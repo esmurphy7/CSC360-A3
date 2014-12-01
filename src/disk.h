@@ -18,9 +18,9 @@
 ///////////////////////////////////////
 // Prototypes
 void free_fileSystem();
-void read_superblock(unsigned char*,int);
-void read_FAT(unsigned char*,int);
-void read_FDT(unsigned char*, int);
+int read_superblock(unsigned char*,int);
+int read_FAT(unsigned char*,int);
+int read_FDT(unsigned char*, int);
 void get_file(unsigned char*, char*,char*);
 void put_file(char*, char*);
 ///////////////////////////////////////
