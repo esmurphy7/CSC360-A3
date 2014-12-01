@@ -162,7 +162,6 @@ int getNextFatBlock(int current_block)
 int getNextFATEntry(int fp, int* position)
 {
 	unsigned char fat_entry[FAT_ENTRY_SIZE];
-	int current_index;
     int current_block = FAT->start_block;
     int entryId = 0;
     int status, auxInt;
@@ -180,54 +179,38 @@ int getNextFATEntry(int fp, int* position)
     	//current_index = current_block*BLOCK_SIZE;
     	lseek(fp, current_block*BLOCK_SIZE, SEEK_SET);
 
-        /* Stop when no more blocks */
+        // if no more blocks
         if(current_block < 0)  
         {
-            /* printf("No more FAT blocks\n"); */
             break;
         }
-
-        /* we move to the start of next FAT block: N bytes = blockSize * currentBlock  */
-        /* currentBlock = fat_start for the first block */
-        /* currentBlock = block obtained after looking into FAT */
-
-        /* Read al FAT entries for current block to obtain statistics (blocks used, reserved, free) */
 
         // for each FAT entry
         for (j=0; j < FAT_ENTRIES_PER_BLOCK; j++)
         {
-        	
-
-            /* we read FAT entries as follows: */
-            /* 1) Read 4 bytes into array */
-            /* 2) memcpy() 4 bytes into int */
-            /* 3) Apply htonl() to int obtained  */
+        	// read the entry
             read(fp, fat_entry, FAT_ENTRY_SIZE);
             memcpy(&auxInt, &fat_entry, FAT_ENTRY_SIZE);
             status = htonl(auxInt);
 
             if(status == BLOCK_AVAILABLE)
             {
-                /* we return blockId = entryID and offset within file = position */
-                //*position = (current_index - FAT_ENTRY_SIZE);
+            	// update the position
                 int fpPosition = (intmax_t)lseek(fp, 0, SEEK_CUR);
             	*position = (fpPosition - FAT_ENTRY_SIZE);
-            	printf("getting next FAT entry... block available, current position: %d new position: %d\n", fpPosition,*position);
+            	//printf("getting next FAT entry... block available, current position: %d new position: %d\n", fpPosition,*position);
                 return entryId;
             }
 
-            // go to next FAT entry
-        	//current_index += FAT_ENTRY_SIZE;
-
             entryId++;
 
-        } /* End for(;;) FAT entries of this block */
+        }
 
-        /* now move to next FAT block using current */
+        // go to next FAT block
         current_block = getNextFatBlock(current_block);
     }
 
-    /* when no FAT entry available - return -1 */
+    // no FAT entry available
     return -1;
 }
 /*
@@ -577,13 +560,13 @@ int read_FDT(unsigned char* map, int print)
 */
 void get_file(unsigned char* map, char* imageFileName, char* outFileName)
 {
-    struct dirEntry* fileEntry = NULL; /* Entry at ROOT dir for requested file name */
+    struct dirEntry* fileEntry = NULL; 
     unsigned char buffer[BLOCK_SIZE];
-    int fileBlock = -1;
+    int file_block = -1;
     int fileSize = -1;
-    int blocks2Read = 0;     /* Blocks to read completely */
-    int remainingBytes = 0;  /* Bytes to read at last block */
-    int wfp;        /* write file pointer - to write into current directory */
+    int blocks2Read = 0;
+    int remaining_bytes = 0;
+    int wfp;        
     int current_index;
  
 
@@ -597,12 +580,14 @@ void get_file(unsigned char* map, char* imageFileName, char* outFileName)
 		exit(-1);
 	}
 
-	/* Get sizes and how many blocks we have to read */
-    fileBlock = fileEntry->start_block;
+	// determine the entry point into the FAT
+    file_block = fileEntry->start_block;
+    // determine the file size
     fileSize  = fileEntry->file_size;
 
+    // determine values to read
     blocks2Read    = (fileSize / BLOCK_SIZE);
-    remainingBytes = (fileSize % BLOCK_SIZE);
+    remaining_bytes = (fileSize % BLOCK_SIZE);
 
     // init buffer to all 0's
     memset(&buffer, 0, BLOCK_SIZE);
@@ -612,38 +597,38 @@ void get_file(unsigned char* map, char* imageFileName, char* outFileName)
 
     if (wfp < 0)
     {
-        printf("ERROR: Could not open file <%s>\n", outFileName);
+        printf("open() error, could not open %s\n", outFileName);
         exit(-1);
     }
 
-    /* Read blocks that will read entire */
+    // for each block
     int i;
     for (i=0; i < blocks2Read; i++)
     {
     	// go to next block
-    	current_index = fileBlock*BLOCK_SIZE;
+    	current_index = file_block*BLOCK_SIZE;
 
-        /* Read full block */
-        /* printf("Reading full block: %d\n", fileBlock); *//* debug */
+    	// read the block
         memcpy(&buffer, &map[current_index], BLOCK_SIZE);
 
-        /* write it into output file */
+        // write the block to outfile
         write(wfp, buffer, BLOCK_SIZE);
 
-        /* obtain next block from FAT */
-        fileBlock = FAT->entries[fileBlock];
+        //go to next block
+        file_block = FAT->entries[file_block];
     }
 
-	if (remainingBytes > 0)
+    // if there are still some bytes leftover
+	if (remaining_bytes > 0)
     {
         // go to beginning of remaining block
-    	current_index = fileBlock*BLOCK_SIZE;
+    	current_index = file_block*BLOCK_SIZE;
 
     	// read the remaining bytes
-        memcpy(&buffer, &map[current_index], remainingBytes);
+        memcpy(&buffer, &map[current_index], remaining_bytes);
 
         // write remaining bytes to output file
-        write(wfp, buffer, remainingBytes);
+        write(wfp, buffer, remaining_bytes);
     }
 
     // close and free the file
@@ -677,22 +662,22 @@ void put_file(char* imageFileName, char *inFileName)
     int writeOffset = 0;
     int i;
 
-    printf("opening infile and diskimage...\n");
+    //printf("opening infile and diskimage...\n");
     if (imageFileName == NULL)
     {
-        printf("ERROR: Could not open NULL img file\n");
+        printf("error: null disk image\n");
         exit(-1);
     }
 
     if (inFileName == NULL)
     {
-        printf("ERROR: Could not open NULL input file\n");
+        printf("error: null input file\n");
         exit(-1);
     }
 
     if (access(inFileName, R_OK))
     {
-        printf("File not found.\n");
+        printf("File not found\n");
         exit(-1);
     }
 
@@ -700,7 +685,7 @@ void put_file(char* imageFileName, char *inFileName)
     // open the disk image file
     if((fp = open(imageFileName, O_RDWR)) < 0)
     {
-        printf("ERROR: Could not open file <%s>\n", imageFileName);
+        printf("error: could not open %s\n", imageFileName);
         exit(-1);
     }
 
@@ -728,7 +713,7 @@ void put_file(char* imageFileName, char *inFileName)
     // open the input file
     if((rfp = open(inFileName, O_RDONLY)) < 0)
     {
-        printf("ERROR: Could not open file <%s>\n", inFileName);
+        printf("error: could not open %s\n", inFileName);
         exit(-1);
     }
 
@@ -736,23 +721,17 @@ void put_file(char* imageFileName, char *inFileName)
 	{
 		perror("fstat()\n");
 		exit(-1);
-	}
-	int stSize = (intmax_t)infileStats.st_size;
-    printf("st.st_size: %d\n", stSize);
-    
-	
+	}	
 
-	printf("reading evreything...\n");
-	// read evreything
+	// read evreything and update the file pointer's position
 	fpPosition = read_superblock(map, 0);
-	printf("read superblock\n");
     lseek(fp, fpPosition, SEEK_SET);
+
     fpPosition = read_FAT(map, 0);  
     lseek(fp, fpPosition, SEEK_SET);
-    printf("read FAT\n");
+
     fpPosition = read_FDT(map, 0);
     lseek(fp, fpPosition, SEEK_SET);
-    printf("read FDT\n");
 
     // init buffer to 0's
     memset(&buffer, 0, BLOCK_SIZE);
@@ -767,15 +746,11 @@ void put_file(char* imageFileName, char *inFileName)
     // find the entry point
     rootEntryPosition = (firstRootEntryFreeBlock * BLOCK_SIZE) + 
                         (firstRootEntryFree * DIR_ENTRY_SIZE);
-    
-    // DEBUG: print current location of file pointer
-    fpPosition = (intmax_t)lseek(fp, 0, SEEK_CUR);
-    printf("fpPosition after reading eveything: %d\n", fpPosition);
 
     // get next block of diskimage
     if ((currentBlock = getNextFATEntry(fp, &writeOffset)) == -1 )
     {
-        printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
+        printf("error: could not add %s\n", inFileName);
         exit(-1);
     }
 
@@ -858,7 +833,7 @@ void put_file(char* imageFileName, char *inFileName)
     write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
    */
 
-    //DEBUG: write garbage values for create and modify times to test rest of the fields
+    //DEBUG: write garbage values (0's) for create and modify times to test rest of the fields
     // store year
     int offset = 0;
     auxShort = 0;
@@ -885,7 +860,6 @@ void put_file(char* imageFileName, char *inFileName)
     buffer[offset] = 0;
     offset += TIME_SECOND_SIZE;
 
-    printf("writing time info...\n");
     // write the creation time data to the diskimage
     write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
     
@@ -893,7 +867,6 @@ void put_file(char* imageFileName, char *inFileName)
     write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
 
 
-    printf("reading file name field...\n");
     // read filename field
     memset(&buffer, 0, DIR_ENTRY_FILE_NAME_SIZE);
     memcpy(&buffer, inFileName, strlen(inFileName));
@@ -910,10 +883,8 @@ void put_file(char* imageFileName, char *inFileName)
     {
     	// go to next block in disk image
     	lseek(fp, currentBlock*BLOCK_SIZE, SEEK_SET);
-    	printf("blocks required: %d\n", blocksRequired);
-    	printf("current position in diskimage: %jd\n", (intmax_t)lseek(fp, 0, SEEK_CUR));
+
     	// read a block from input file
-        //bytesRead = fread(&buffer[0], 1, myFileSystem.blockSize, rfp);
         bytesRead = read(rfp, buffer, BLOCK_SIZE);
         totalBytesRead += bytesRead;
 
@@ -949,11 +920,10 @@ void put_file(char* imageFileName, char *inFileName)
 
             // get the next block
             currentBlock = getNextFATEntry(fp, &writeOffset);
-            printf("current block: %d\n", currentBlock);
 
             if (currentBlock == -1 )
             {
-                printf("ERROR: Could not add file <%s>, filesystem is full\n", inFileName);
+                printf("error: could not add %s\n", inFileName);
                 exit(-1);
             }
 
