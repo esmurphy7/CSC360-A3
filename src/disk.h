@@ -21,5 +21,6 @@ void free_fileSystem();
 void read_superblock(unsigned char*,int);
 void read_FAT(unsigned char*,int);
 void read_FDT(unsigned char*, int);
-void copy_file(unsigned char*, char*,char*);
+void get_file(unsigned char*, char*,char*);
+void put_file(char*, char*);
 ///////////////////////////////////////

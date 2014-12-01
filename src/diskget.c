@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
 
 	// copy the file to the current directory
 	printf("copying %s from %s...\n", target_filename, diskimg);
-	copy_file(map, diskimg, target_filename);
+	get_file(map, diskimg, target_filename);
 
 	return 0;
 }

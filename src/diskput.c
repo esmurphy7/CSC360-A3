@@ -24,7 +24,7 @@ int main(int argc, char * argv[])
         exit(-1);
     }
 
-    diskPut(argv[1], argv[2]);
+    put_file(argv[1], argv[2]);
 
     return 0;
 }
