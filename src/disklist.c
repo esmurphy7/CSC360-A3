@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
 					 PROT_READ, 
 					 MAP_SHARED, 
 					 fd, 
-					 0)) == (caddr_t)-1)
+					 0)) == MAP_FAILED)
 	{
 		perror("mmap()\n");
 		exit(-1);

@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
 	target_filename = argv[2];
 
 	// Open image file
-	if((fd = open(diskimg, O_RDONLY)) == NULL)
+	if((fd = open(diskimg, O_RDONLY)) < 0)
 	{
 		perror("fopen()\n");
 		exit(-1);
@@ -59,7 +59,7 @@ int main(int argc, char* argv[])
 					 PROT_READ, 
 					 MAP_SHARED, 
 					 fd, 
-					 0)) == (caddr_t)-1)
+					 0)) == MAP_FAILED)
 	{
 		perror("mmap()\n");
 		exit(-1);

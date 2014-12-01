@@ -644,10 +644,10 @@ void put_file(char* imageFileName, char *inFileName)
 {
     unsigned char buffer[BLOCK_SIZE];
     int rootEntryPosition = -1;
-    struct tm timeInfo;
+    //struct tm timeInfo;
     struct stat infileStats;
     struct stat diskimageStats;
-    time_t now;
+    //time_t now;
     int fp;
     int fpPosition;
     int rfp;
@@ -704,7 +704,7 @@ void put_file(char* imageFileName, char *inFileName)
 				 fp, 
 				 0);
 
-	if(map == (caddr_t)-1)
+	if(map == MAP_FAILED)
 	{
 		perror("mmap()\n");
 		exit(-1);
