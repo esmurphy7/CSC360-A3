@@ -464,7 +464,7 @@ int read_FDT(unsigned char* map, int print)
 	// Allocate memory for the list of root entries
 	FDT->root = (struct dirEntry*)malloc(sizeof(FDT->root)*num_entries);
 
-	printf("starting at block %d, current_index %d\n", current_block, current_block*BLOCK_SIZE);
+	//printf("starting at block %d, current_index %d\n", current_block, current_block*BLOCK_SIZE);
 	// for each block in the FDT
 	for(i=0; i < FDT->num_blocks; i++)
 	{
@@ -481,7 +481,7 @@ int read_FDT(unsigned char* map, int print)
 			// reset the offset for new entries
 			offset = 0;
 
-			printf("current_index: %d\n", current_index);
+			//printf("current_index: %d\n", current_index);
 
 			// read each field of the current dir entry into FDT's list of dir entries
 			//printf("FDT->root[dir_entries].status: %.2x\n", FDT->root[dir_entries].status);
@@ -795,8 +795,6 @@ void put_file(char* imageFileName, char *inFileName)
 
 
     // determine number of blocks required for the infile
-    int statsSize = (intmax_t)infileStats.st_size;
-    printf("st.st_size: %d\n", statsSize);
     blocksRequired = infileStats.st_size / BLOCK_SIZE;
     // add an extra for remaining blocks
     if(infileStats.st_size % BLOCK_SIZE) blocksRequired++;
@@ -859,6 +857,41 @@ void put_file(char* imageFileName, char *inFileName)
     // write the modify time (same as creaion time) to the diskimage
     write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
    */
+
+    //DEBUG: write garbage values for create and modify times to test rest of the fields
+    // store year
+    int offset = 0;
+    auxShort = 0;
+    memcpy(&buffer[offset], &auxShort, sizeof(short));
+    offset += TIME_YEAR_SIZE;
+
+    // store month
+    buffer[offset] = 0; 
+    offset += TIME_MONTH_SIZE;
+
+    // store day
+    buffer[offset] = 0;
+    offset += TIME_DAY_SIZE;
+
+    // store hour
+    buffer[offset] = 0;
+    offset += TIME_HOUR_SIZE; 
+
+    // store minute
+    buffer[offset] = 0;
+    offset += TIME_MINUTE_SIZE;
+
+    // store second 
+    buffer[offset] = 0;
+    offset += TIME_SECOND_SIZE;
+
+    printf("writing time info...\n");
+    // write the creation time data to the diskimage
+    write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
+    
+    // write the modify time (same as creaion time) to the diskimage
+    write(fp, buffer, DIR_ENTRY_CREATE_TIME_SIZE);
+
 
     printf("reading file name field...\n");
     // read filename field
